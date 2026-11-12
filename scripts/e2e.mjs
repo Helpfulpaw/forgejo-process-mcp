@@ -69,7 +69,7 @@ const accepted = JSON.parse(t1);
 console.log("\nACCEPTED immediately:", accepted.accepted, "| branch:", accepted.branch, "| msg:", accepted.message.slice(0, 120));
 
 // 3. expect failure event
-const failEvt = await waitEvent("ci_run_failed", 5 * 60_000);
+const failEvt = await waitEvent("ci_run_failed", 12 * 60_000);
 console.log("\nFAILURE EVENT RECEIVED:", JSON.stringify(failEvt, null, 1).slice(0, 400));
 
 // 4. fix the workflow, push again
@@ -82,7 +82,7 @@ jobs:
       - run: echo "green now"
 `);
 await call("cicd_start", { dir: DIR, repo: REPO, message: "e2e: green gate (expect success event)" });
-const okEvt = await waitEvent("ci_run_succeeded", 5 * 60_000);
+const okEvt = await waitEvent("ci_run_succeeded", 12 * 60_000);
 console.log("\nSUCCESS EVENT RECEIVED:", JSON.stringify(okEvt, null, 1).slice(0, 400));
 
 console.log("\nE2E PASS: async accept + failure event + success event");

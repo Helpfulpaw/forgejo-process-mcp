@@ -51,6 +51,27 @@ export class ForgejoClient {
     return runs.find((r) => r.head_branch === branch) ?? runs[0] ?? null;
   }
 
+  /**
+   * Commit statuses are the durable run-outcome signal on Forgejo 11:
+   * /actions/tasks entries vanish after completion, but statuses persist.
+   * One entry per context per run — the latest entry per context wins.
+   */
+  async commitStatuses(repo: string, sha: string): Promise<Map<string, string>> {
+    const list = (await this.req("GET", `/repos/${repo}/statuses/${sha}`)) as {
+      context?: string;
+      status?: string;
+      created_at?: string;
+    }[];
+    // API returns newest first; first occurrence per context is the latest.
+    const latest = new Map<string, string>();
+    for (const s of list) {
+      if (s.context && !latest.has(s.context)) {
+        latest.set(s.context, String(s.status ?? "pending").toLowerCase());
+      }
+    }
+    return latest;
+  }
+
   openPr(repo: string, head: string, base: string, title: string, body = "") {
     return this.req("POST", `/repos/${repo}/pulls`, { head, base, title, body });
   }

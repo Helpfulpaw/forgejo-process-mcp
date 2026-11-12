@@ -51,41 +51,51 @@ export class Watcher {
       return;
     }
 
-    const runs = await this.api.listRuns(w.repo, 20);
-    const run = w.runId
-      ? runs.find((r) => r.id === w.runId)
-      : runs.find((r) => (w.branch ? r.head_branch === w.branch : true));
-
-    if (!run) return; // run not visible yet — keep waiting
-    if (!w.runId) {
-      // Bind the watch to the concrete run once it appears.
+    if (!w.headSha) {
+      // Legacy branch-bound watch: bind to the first visible run for the branch.
+      const runs = await this.api.listRuns(w.repo, 20);
+      const run = runs.find((r) => (w.branch ? r.head_branch === w.branch : true));
+      if (!run) return;
       this.store.removeWatch(w.id);
       this.store.addWatch({ ...w, runId: run.id });
       return;
     }
 
-    const status = String(run.status).toLowerCase();
-    const conclusion = String(run.conclusion ?? "").toLowerCase();
-    const failed = TERMINAL_BAD.has(status) || TERMINAL_BAD.has(conclusion);
-    const ok = TERMINAL_OK.has(status) || TERMINAL_OK.has(conclusion);
-    if (!failed && !ok) return;
+    // Commit-status based evaluation (durable on Forgejo 11; task entries vanish).
+    const statuses = await this.api.commitStatuses(w.repo, w.headSha);
+    if (statuses.size === 0) return; // run not planned yet — keep waiting
+
+    const values = [...statuses.values()];
+    const failed = values.filter((v) => TERMINAL_BAD.has(v));
+    const pending = values.filter((v) => !TERMINAL_OK.has(v) && !TERMINAL_BAD.has(v));
+    if (failed.length === 0 && pending.length > 0) return; // still running
 
     const isDeploy = w.kind === "deploy";
+    const anyFail = failed.length > 0;
+
+    if (!anyFail) {
+      // Success requires a stable context set: on this instance job contexts
+      // appear minutes apart during planning, so "all green" must survive two
+      // consecutive identical polls before we declare green.
+      const sig = [...statuses.entries()].sort().map(([k, v]) => `${k}=${v}`).join("|");
+      if (w.lastSig !== sig) {
+        this.store.removeWatch(w.id);
+        this.store.addWatch({ ...w, lastSig: sig });
+        return;
+      }
+    }
     this.store.append({
-      kind: failed ? "ci_run_failed" : isDeploy ? "deploy_finished" : "ci_run_succeeded",
+      kind: anyFail ? "ci_run_failed" : isDeploy ? "deploy_finished" : "ci_run_succeeded",
       repo: w.repo,
-      summary: failed
-        ? `CI/CD FAILED on ${w.repo}: ${run.name} (${run.status}) — investigate before continuing this line of work`
+      summary: anyFail
+        ? `CI/CD FAILED on ${w.repo} @${w.headSha.slice(0, 8)}: ${failed.length} job context(s) failed — investigate before continuing this line of work`
         : isDeploy
-          ? `Deploy finished on ${w.repo}: ${run.name} succeeded — production Playwright testing can start`
-          : `CI green on ${w.repo}: ${run.name} succeeded`,
+          ? `Deploy finished on ${w.repo} @${w.headSha.slice(0, 8)} — production Playwright testing can start`
+          : `CI green on ${w.repo} @${w.headSha.slice(0, 8)}`,
       detail: {
         watchId: w.id,
-        runId: run.id,
-        runName: run.name,
-        status: run.status,
-        conclusion: run.conclusion ?? null,
-        url: run.html_url ?? null,
+        headSha: w.headSha,
+        contexts: Object.fromEntries(statuses),
       },
     });
     this.store.removeWatch(w.id);

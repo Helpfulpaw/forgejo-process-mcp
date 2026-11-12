@@ -19,6 +19,7 @@ export interface Watch {
   kind: string; // ci | deploy
   createdAt: string;
   deadlineAt: string;
+  lastSig?: string; // commit-status context signature for stability check
 }
 
 export class EventStore {

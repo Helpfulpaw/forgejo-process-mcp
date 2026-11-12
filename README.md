@@ -69,6 +69,23 @@ args = ["/abs/path/forgejo-process-mcp/dist/index.js"]
 env = { FORGEJO_URL = "http://127.0.0.1:3310", FORGEJO_TOKEN = "..." }
 ```
 
+## Forgejo instance notes (found during bring-up, Forgejo 11.0.16)
+
+1. **Runner capacity starves CI.** With `capacity: 1` in the runner's
+   `config.yml`, one chatty repo floods the FIFO queue and other repos' runs
+   wait for hours. Raise `capacity` (this instance: 4).
+2. **Webhooks need an allowlist.** Default `webhook.ALLOWED_HOST_LIST`
+   blocks `host.docker.internal`, so a dockerized Forgejo cannot call a
+   webhook listener on the host. Add it to `app.ini`:
+   `[webhook] ALLOWED_HOST_LIST = host.docker.internal,...`
+3. **Run planning lag is minutes, not seconds.** New runs sit in an initial
+   state before jobs are planned and contexts appear. This server therefore
+   watches **commit statuses** (durable) rather than `/actions/tasks`
+   (entries vanish after completion), and declares green only after the
+   context set is stable across two polls.
+4. **No run-level REST API** in Forgejo 11 (`/actions/runs` is 404) — commit
+   statuses per pushed SHA are the reliable read.
+
 ## End-to-end test
 
 Drives a real failure-then-success cycle against a live Forgejo
