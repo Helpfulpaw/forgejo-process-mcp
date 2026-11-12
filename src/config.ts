@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 
 export interface Config {
   forgejoUrl: string;
@@ -9,10 +10,23 @@ export interface Config {
   webhookPort: number;
 }
 
+function loadToken(): string {
+  if (process.env.FORGEJO_TOKEN) return process.env.FORGEJO_TOKEN;
+  const file = process.env.FORGEJO_TOKEN_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, "utf8").trim();
+    } catch {
+      console.error(`[config] cannot read FORGEJO_TOKEN_FILE=${file}`);
+    }
+  }
+  return "";
+}
+
 export function loadConfig(): Config {
-  const token = process.env.FORGEJO_TOKEN ?? "";
+  const token = loadToken();
   if (!token) {
-    console.error("[config] FORGEJO_TOKEN is not set — API calls will fail");
+    console.error("[config] neither FORGEJO_TOKEN nor FORGEJO_TOKEN_FILE set — API calls will fail");
   }
   return {
     forgejoUrl: (process.env.FORGEJO_URL ?? "http://127.0.0.1:3310").replace(/\/$/, ""),
